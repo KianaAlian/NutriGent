@@ -1,0 +1,23 @@
+[Unit]
+Description=NutriGent Telegram bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=nutrigent
+Group=nutrigent
+WorkingDirectory=/opt/nutrigent/app
+EnvironmentFile=/opt/nutrigent/.env
+Environment=MPLBACKEND=Agg DIET_CHART_DIR=/opt/nutrigent/data/charts MPLCONFIGDIR=/opt/nutrigent/data/.mplconfig
+ExecStart=/opt/nutrigent/venv/bin/python -u app/bot.py
+Restart=on-failure
+RestartSec=5
+MemoryMax=400M
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/opt/nutrigent/data
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,15 @@
+menu - 📋 Open the main menu
+check - 🔍 Check if a food is safe (photo/barcode/name)
+today - 📊 Today's calories & macros
+week - 📈 This week's calorie chart
+month - 🗓 This month's trend
+plan - 🍽 Plan / show my week of meals
+shopping - 🛒 My shopping list
+tonight - 🌙 What am I cooking tonight?
+log - ✍️ Log what I ate
+tired - 😴 Too tired to cook — quick fallback
+symptom - 🩺 Log a symptom (bloating, energy…)
+report - 📑 My weekly report card
+card - 🆘 Allergy card for restaurants/travel
+profile - ⚙️ View / edit my profile & allergies
+help - ❓ How this bot works
