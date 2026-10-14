@@ -1,0 +1,66 @@
+# ---- Secrets: never commit tokens or API keys ----
+.env
+*.env
+!.env.example
+auth.json
+
+# ---- User data: the databases hold health information ----
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# ---- Runtime output ----
+charts/
+data/
+logs/
+*.log
+.mplconfig/
+# Hermes Agent state (sessions, memory) lives on the server, not in the repo
+.hermes/
+
+# ---- Python: caches, virtual environments, build output ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---- LaTeX build output (the report source is tracked, the PDF is built) ----
+report/*.aux
+report/*.bbl
+report/*.blg
+report/*.lof
+report/*.lot
+report/*.out
+report/*.toc
+report/*.synctex.gz
+report/*.fdb_latexmk
+report/*.fls
+report/*.pdf
+
+# ---- IDE and editor configuration ----
+.idea/
+.vscode/
+*.iml
+*.swp
+*~
+.claude/
+
+# ---- Operating system files ----
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
