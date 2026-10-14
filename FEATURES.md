@@ -13,7 +13,7 @@ every designed feature and says honestly how far each one is built.
 | 🟡 **Partial** | Part of it works, or it is performed by the Hermes agent following a skill rather than by tested code |
 | 🔵 **Roadmap** | Designed (skill, prompt or database field exists), not built yet |
 
-**Summary of the 48 designed features:** 18 ✅ working · 8 🟡 partial · 22 🔵 roadmap — plus 9 features
+**Summary of the 48 designed features:** 19 ✅ working · 8 🟡 partial · 21 🔵 roadmap — plus 15 features
 added during this phase (section 2), all ✅.
 
 ---
@@ -31,7 +31,7 @@ added during this phase (section 2), all ✅.
 | F5 | False-positive guards | ✅ | **23** patterns: coconut/almond/oat milk, cocoa butter, nutmeg, water chestnut, buckwheat, eggplant… |
 | F6 | Per-allergen severity policy | ✅ | mild / moderate / severe / anaphylactic decide how traces are treated. |
 | F7 | Fail-closed on unreadable input | ✅ | Readability < 0.85, `unreadable` or `not_food` → **CAN'T VERIFY** (treat as not safe). |
-| F8 | Restaurant menu scan | 🟡 | Procedure in the `eating-out` skill (agent); the bot's "Scan a menu" button is not wired yet. |
+| F8 | Restaurant menu scan | 🟡 | "Scan a menu" button: the next photo goes through the gate, and a menu can never be called SAFE (CAUTION at severe allergies). A per-dish safe / ask / avoid list is still only in the `eating-out` skill. |
 | F9 | Allergy card (`/card`) | 🟡 | English card with severe allergens highlighted. Local language and emergency number: roadmap. |
 | F10 | Cross-contamination guard | ✅ | "May contain" lines block at severe/anaphylactic, caution otherwise. |
 | F11 | Multi-language labels | 🟡 | Extraction prompt transcribes any language and translates; not yet validated on real foreign labels. |
@@ -40,11 +40,11 @@ added during this phase (section 2), all ✅.
 
 | # | Feature | Status | What exists today |
 |---|---|---|---|
-| F12 | Weekly meal plan | 🟡 | `/plan` builds 7 dinners, screens each recipe through the gate, stores the schedule and builds the shopping list. Macro ±5 %, expiring-first and calendar constraints are only requested in the planner prompt, not enforced. Known issue: recipes are screened like cooked-dish photos, so for severe allergies every meal is flagged. |
-| F13 | Swap a single meal | 🔵 | "Swap" button exists, no handler. |
+| F12 | Weekly meal plan | 🟡 | `/plan` builds 7 dinners, screens each recipe through the gate, stores the schedule and builds the shopping list. Macro ±5 %, expiring-first and calendar constraints are only requested in the planner prompt, not enforced. Recipes are screened as complete ingredient lists; a recipe that hits an allergen is marked "needs regeneration". |
+| F13 | Swap a single meal | ✅ | "Swap" under Tonight trades tonight's meal with the next planned one. Generating a brand-new alternative: roadmap. |
 | F14 | Leftover chaining | 🟡 | Planner prompt asks for leftover remixes; shown as a tag on the plan card; not enforced. |
 | F15 | Recipe import & make-safe | 🟡 | `import-recipe` skill (agent); no bot code. |
-| F16 | Symptom–food correlation | 🔵 | Symptoms are stored (`/symptom`); the weekly analysis is not built. |
+| F16 | Symptom–food correlation | 🔵 | Symptoms are stored (picker buttons or `/symptom …`); the weekly analysis is not built. |
 
 ### Calorie & macro tracking
 
@@ -52,7 +52,7 @@ added during this phase (section 2), all ✅.
 |---|---|---|---|
 | F17 | Personal calorie target (Mifflin–St Jeor) | ✅ | Calculated at sign-up from sex, age, height, weight, activity and goal. Manual override: roadmap. |
 | F18 | Daily macro dashboard | ✅ | Calorie ring + protein/carb/fat bars from `food_log`, colour-coded against target. |
-| F19 | Meal logging (text / photo / barcode / voice) | 🟡 | Text logging works but records a fixed 500 kcal placeholder; photo, barcode and voice: roadmap. |
+| F19 | Meal logging (text / photo / barcode / voice) | 🟡 | Text logging works with a real calorie and macro estimate (Hermes or OpenAI; if neither answers, the meal is saved without calories and the user is told). Photo, barcode and voice: roadmap. |
 | F20 | Dynamic weekly rebalancing | 🔵 | — |
 | F21 | Adaptive recalibration from weight trend | 🔵 | Weight is stored and charted; recalibration not built. |
 
@@ -60,7 +60,7 @@ added during this phase (section 2), all ✅.
 
 | # | Feature | Status | What exists today |
 |---|---|---|---|
-| F22 | Pantry-aware shopping list | ✅ | Needed − pantry, exact quantities, grouped by store section, sent as an image. Marking items bought works by button; per-item buttons under the card: roadmap. |
+| F22 | Pantry-aware shopping list | ✅ | Needed − pantry, exact quantities, grouped by store section, sent as an image. Every item has 🛒 bought and ❌ not-available buttons; users can only change their own items. |
 | F23 | Pantry sync 4×/week | 🔵 | `pantry-sync` skill written; schedule not registered. |
 | F24 | Spoilage routing (use expiring items first) | 🔵 | Expiry dates stored; not enforced by the planner. |
 | F25 | Macro-preserving substitutions ("salmon sold out") | 🔵 | Described in the `handle-friction` skill. |
@@ -123,6 +123,12 @@ added during this phase (section 2), all ✅.
 | N7 | Per-user data ownership | A user can only mark their own shopping items as bought. |
 | N8 | End-to-end test with a simulated Telegram | `tests/e2e_fake_telegram.py`: 80 scripted actions through the real polling loop. |
 | N9 | Hardened deployment + restored agent | systemd service as an unprivileged user; Hermes Agent with persona, memory and 947 messages of history restored from backup. |
+| N10 | Hermes chat behind the bot | Free text that is not a command, button, photo or food question goes to Hermes (`app/hermes_bridge.py`): one session per user, "typing…" while it thinks, only harmless toolsets (no terminal, files or code), menu fallback when the agent is down or slow. |
+| N11 | Every button answers | Check sub-buttons (photo / type / menu; barcode says "coming soon"), log options, symptom picker, Tonight's Cooking / Swap / Recipe, per-item shopping buttons. The next typed message after "Type it", "Type a food name" or "Other" is routed to that action (`app/pending.py`). |
+| N12 | Real Tonight | Shows tonight's planned meal with Cooking it (logs the recipe's macros), Swap and Show recipe. |
+| N13 | Plain-text replies | Messages are sent without HTML parsing, so "mac & cheese" or "<3" can no longer make Telegram reject a reply. |
+| N14 | Menu photos never SAFE | A restaurant menu is treated like a cooked dish: it cannot prove absence of an allergen. |
+| N15 | Planned recipes screened as labels | A generated recipe's ingredient list is complete, so it is checked like a label; only recipes that really hit an allergen are flagged (before, every meal was flagged for severe allergies). |
 
 ---
 
@@ -132,18 +138,18 @@ added during this phase (section 2), all ✅.
 |---|---|---|
 | **Start** | ✅ | Sign-up for new users; "Welcome back" + menu for registered users |
 | **Menu** · **Help** | ✅ | 12-button inline menu · short explanation |
-| **Check** | ✅ | Dish name → verdict card; photo → verdict card. Sub-buttons (photo / barcode / text / menu): 🔵 |
+| **Check** | ✅ | Dish name or photo → verdict card. Sub-buttons: photo, type a food name, scan a menu ✅; barcode: "coming soon" 🔵 |
 | **Today** · **Week** · **Month** | ✅ | Dashboard · weekly chart · monthly trend |
 | **Plan** | 🟡 | 7-day plan card + shopping card (see F12) |
 | **Shopping** | ✅ | Shopping card |
-| **Tonight** | 🟡 | Currently shows today's dashboard; tonight's meal with Cooking / Swap / Recipe buttons: 🔵 |
-| **Log** | 🟡 | Text log with placeholder calories (see F19) |
+| **Tonight** | ✅ | Tonight's planned meal with Cooking it / Swap / Show recipe buttons; offers to plan the week if nothing is planned |
+| **Log** | 🟡 | Type it → meal logged with an estimated kcal and macros; photo / voice: "coming soon" (see F19) |
 | **Tired** | 🟡 | See F29 |
-| **Symptom** | ✅ | `/symptom bloating after lunch` is stored. Symptom picker buttons: 🔵 |
+| **Symptom** | ✅ | Picker buttons (bloating, low energy, headache, skin, other) or `/symptom bloating after lunch` |
 | **Report** | ✅ | Week chart + month chart + safety donut |
 | **Card** | ✅ | Allergy card text |
 | **Profile** | ✅ | Profile card. Editing: 🔵 |
-| Free text | 🟡 | "can I eat…", "tired", "plan" are recognised; everything else is treated as a food check until the Hermes chat bridge is connected |
+| Free text | ✅ | "can I eat…" → safety gate; "tired", "plan my week" → those actions; everything else → Hermes chat in the user's language |
 
 ---
 
@@ -178,7 +184,17 @@ BMR = 10·kg + 6.25·cm − 5·age + 5 (men) / − 161 (women) · TDEE = BMR × 
 · target = TDEE × 0.80 (lose) / 1.00 (maintain) / 1.12 (gain) · macros 30 % protein, 40 % carbs, 30 % fat
 (4 / 4 / 9 kcal per gram).
 
-### 4.5 Planned autonomous schedule (🔵)
+### 4.5 Message routing and free chat
+```
+update ──► allow-list ──► mid-sign-up? → current question
+       ──► photo → safety check · button → its action · grid word / command → its action
+       ──► waiting for typed input (after "Type it", "Type a food name", "Other")? → that action
+       ──► "can I eat…" → safety gate · "tired" → fallback · "plan my week" → plan
+       ──► anything else → Hermes (own session per user, harmless tools only) → reply,
+           or "Sorry, I couldn't answer that right now" + menu if the agent is down
+```
+
+### 4.6 Planned autonomous schedule (🔵)
 
 | When | Action |
 |---|---|
@@ -217,8 +233,8 @@ BMR = 10·kg + 6.25·cm − 5·age + 5 (men) / − 161 (women) · TDEE = BMR × 
 | Phase | Scope | Status |
 |---|---|---|
 | **1. Safety core & pilot** | Deterministic gate, synonyms and guards, charts and cards, sign-up, button grid, access control, tests, server deployment, agent restored | ✅ done |
-| **2. Core flows** (design agreed) | Engine that returns replies (testable without Telegram) + CLI for the agent; bot as front door with a Hermes bridge for free chat (per-user sessions, "typing…", fallback when the agent is down); wire the 13 silent buttons; real meal-logging estimates; HTML escaping; screen planned recipes as labels; real "Tonight" and pantry-based "Too tired" | next |
-| **3. Better inputs** | Barcode → Open Food Facts (F2), menu scan in the bot (F8), swap one meal (F13), photo / voice logging (F19) | planned |
+| **2. Core flows** | ✅ Done: Hermes bridge for free chat (per-user sessions, "typing…", fallback), every button answers, real meal-logging estimates, plain-text replies, real "Tonight", swap, planned recipes screened as labels, wrapped verdict text. Remaining: engine that returns replies + CLI for the agent, pantry-based "Too tired" | in progress |
+| **3. Better inputs** | Barcode → Open Food Facts (F2), per-dish menu verdicts (F8), photo / voice logging (F19) | planned |
 | **4. Autonomy** | Hermes cron jobs calling the CLI: daily nudges, Sunday plan and report, Saturday reminder, pantry sync, preference memory (F23, F26–F28) | planned |
 | **5. Insights & adaptation** | Symptom–food correlation (F16), weekly rebalancing (F20), weight-based recalibration (F21), profile editing, Persian interface | planned |
 | **6. Integrations & scale** | Calendar, weather, to-do, notes, email, smart scale (F43–F48); health flags and medication information (F41–F42); PostgreSQL and webhooks beyond a 3–10 user pilot | planned |

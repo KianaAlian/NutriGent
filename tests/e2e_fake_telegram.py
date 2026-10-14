@@ -59,7 +59,7 @@ class FakeTelegram(BaseHTTPRequestHandler):
     def do_GET(self):
         u = urllib.parse.urlparse(self.path); q = dict(urllib.parse.parse_qsl(u.query))
         if u.path.startswith("/file/"):
-            b = open(os.path.join(REPO, "sample-visuals", "06_verdict_safe.png"), "rb").read()
+            b = open(os.path.join(REPO, "tests", "fixtures", "label_photo.png"), "rb").read()
             self.send_response(200); self.send_header("Content-Length", str(len(b)))
             self.end_headers(); self.wfile.write(b); return
         method = u.path.rsplit("/", 1)[-1]

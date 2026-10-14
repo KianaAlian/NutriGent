@@ -1,6 +1,7 @@
-# Core runtime. Telegram + DB + math are stdlib-only (urllib, sqlite3, json).
-matplotlib>=3.7          # charts.py + visuals.py
-pyzbar>=0.1.9            # barcode decoding in food-safety-check (needs libzbar0)
-openai>=1.0             # the engine, wired in app/llm.py (your key)
-# Optional:
-# requests              # if you prefer it over urllib for Open Food Facts / Spoonacular
+# Runtime dependencies. Telegram, SQLite and the maths use only the standard library.
+# Charts and image cards (shared/charts.py, shared/visuals.py)
+matplotlib>=3.7
+# Barcode decoding for the planned barcode check (needs the system library libzbar0)
+pyzbar>=0.1.9
+# Vision extraction and planning in app/llm.py (used only when OPENAI_API_KEY is set)
+openai>=1.0

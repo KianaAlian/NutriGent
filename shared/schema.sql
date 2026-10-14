@@ -131,3 +131,17 @@ CREATE TABLE IF NOT EXISTS onboarding_state (
   answers_json TEXT NOT NULL DEFAULT '{}',
   updated_at   TEXT DEFAULT (datetime('now'))
 );
+
+-- One Hermes agent conversation per Telegram user (free chat keeps its context)
+CREATE TABLE IF NOT EXISTS hermes_sessions (
+  telegram_id TEXT PRIMARY KEY,
+  session_id  TEXT NOT NULL,
+  updated_at  TEXT DEFAULT (datetime('now'))
+);
+
+-- What the user's next plain message means after tapping e.g. "Type it" (expires after 30 min)
+CREATE TABLE IF NOT EXISTS pending_input (
+  telegram_id TEXT PRIMARY KEY,
+  kind        TEXT NOT NULL,              -- check_text / log_text / symptom_text
+  created_at  TEXT DEFAULT (datetime('now'))
+);

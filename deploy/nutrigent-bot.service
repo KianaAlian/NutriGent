@@ -9,14 +9,17 @@ Group=nutrigent
 WorkingDirectory=/opt/nutrigent/app
 EnvironmentFile=/opt/nutrigent/.env
 Environment=MPLBACKEND=Agg DIET_CHART_DIR=/opt/nutrigent/data/charts MPLCONFIGDIR=/opt/nutrigent/data/.mplconfig
+# Free chat is answered by the Hermes agent, run as the same user with its own profile
+Environment=HERMES_BIN=/opt/nutrigent/.local/bin/hermes HERMES_HOME=/opt/nutrigent/.hermes HERMES_TIMEOUT=120
+Environment=PATH=/opt/nutrigent/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/opt/nutrigent/venv/bin/python -u app/bot.py
 Restart=on-failure
 RestartSec=5
-MemoryMax=400M
+MemoryMax=900M
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
-ReadWritePaths=/opt/nutrigent/data
+ReadWritePaths=/opt/nutrigent/data /opt/nutrigent/.hermes -/opt/nutrigent/.cache -/opt/nutrigent/.local/share
 ProtectHome=yes
 
 [Install]

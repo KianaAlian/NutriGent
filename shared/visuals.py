@@ -11,7 +11,7 @@ No emoji inside images (they don't render); we use color blocks + ✓ ✗ ⚠ gl
 import matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch, Circle, Wedge, Rectangle
-import os
+import os, textwrap
 
 OUT = os.environ.get("DIET_CHART_DIR", "/tmp/diet_charts")
 os.makedirs(OUT, exist_ok=True)
@@ -35,6 +35,12 @@ def _card(ax, x, y, w, h, fc="white", ec=LINE, lw=1.0, rad=0.02):
     ax.add_patch(FancyBboxPatch((x, y), w, h, fc=fc, ec=ec, lw=lw,
         boxstyle=f"round,pad=0,rounding_size={rad}", mutation_aspect=1))
 
+REASON_WIDTH = 46  # characters per line that fit the verdict card at 12.5 pt
+
+def wrap_reasons(reasons):
+    """-> [(first_line_of_a_reason, text)] so long reasons wrap instead of running off the card."""
+    return [(i == 0, line) for r in reasons for i, line in enumerate(textwrap.wrap(r, REASON_WIDTH, break_on_hyphens=False))]
+
 def verdict_card(level, item, reasons, name="verdict.png"):
     band, bg, glyph, head = LEVELS.get(level, LEVELS["UNVERIFIED"])
     fig, ax = plt.subplots(figsize=(6.4, 3.4)); ax.set_xlim(0,1); ax.set_ylim(0,1); ax.axis("off")
@@ -44,10 +50,10 @@ def verdict_card(level, item, reasons, name="verdict.png"):
     ax.text(0.20, 0.86, head, fontsize=27, color="white", va="center", weight="bold")
     ax.text(0.06, 0.66, item[:48], fontsize=15, color=INK, va="center", weight="medium")
     y = 0.56
-    for r in reasons[:4]:
-        ax.text(0.06, y, "•", fontsize=14, color=band, va="center", weight="bold")
-        ax.text(0.10, y, r[:64], fontsize=12.5, color=INK, va="center"); y -= 0.11
-    ax.text(0.06, 0.06, "Assistive tool, not a medical device. For reactions, use emergency meds and call emergency services.",
+    for first, line in wrap_reasons(reasons)[:5]:
+        if first: ax.text(0.06, y, "•", fontsize=14, color=band, va="center", weight="bold")
+        ax.text(0.10, y, line, fontsize=12.5, color=INK, va="center"); y -= 0.085
+    ax.text(0.06, 0.07, "Assistive tool, not a medical device.\nFor reactions, use emergency meds and call emergency services.",
             fontsize=8, color=MUTE, va="center", style="italic")
     return _save(fig, name)
 

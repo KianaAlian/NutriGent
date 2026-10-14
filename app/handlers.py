@@ -4,15 +4,15 @@ Each function takes (ctx) and returns nothing; it sends messages/photos itself.
 The actual OpenAI vision/planner CALLS are isolated in llm.py (stubbed) so you
 drop your own client in one place. Everything else here is real and runnable.
 """
-import sys, os, json, datetime as dt
+import sys, os, json, threading, datetime as dt
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "shared"))
 
-import db, reporting, visuals, onboarding
+import db, reporting, visuals, onboarding, pending, hermes_bridge
 from safety_gate import safety_verdict
 from nutrition import daily_target
-from telegram_io import send_text, send_menu, send_photo
+from telegram_io import send_text, send_menu, send_photo, send_chat_action
 import telegram_menu as menu
-from llm import extract_from_image, extract_from_text, generate_week  # your engine
+from llm import extract_from_image, extract_from_text, generate_week, estimate_meal  # your engine
 
 
 # ---------- helpers ----------
@@ -179,7 +179,8 @@ def plan_week(ctx):
         date = (monday + dt.timedelta(days=i)).isoformat()
         for meal in day.get("meals", [])[:1]:
             ingredients = meal.get("ingredients", [])
-            ext = {"image_type":"prepared_food", "readability":1.0,
+            # The recipe's ingredient list is complete (we will cook exactly this), so screen it as a label.
+            ext = {"image_type":"ingredient_label", "readability":1.0,
                    "identified_ingredients":[ing.get("name", "") for ing in ingredients]}
             gate = safety_verdict(ext, profile)
             if gate.level in ("UNSAFE", "CAUTION"):
@@ -222,7 +223,7 @@ def show_shopping(ctx):
     uid = _need_profile(ctx)
     if not uid: return
     c = db.conn()
-    rows = c.execute("SELECT ingredient,quantity,unit,store_section FROM shopping_list_items "
+    rows = c.execute("SELECT id,ingredient,quantity,unit,store_section FROM shopping_list_items "
                      "WHERE user_id=? AND status='pending'", (uid,)).fetchall()
     c.close()
     sections = {}
@@ -232,7 +233,28 @@ def show_shopping(ctx):
     if not sections:
         send_text(ctx["chat_id"], "Your shopping list is empty — plan a week first."); return
     send_photo(ctx["chat_id"], visuals.shopping_card(sections, name=f"shop_{uid}.png"),
-               caption="🛒 Tap items in chat to mark them bought.")
+               caption="🛒 Your shopping list")
+    send_menu(ctx["chat_id"], "Tap an item when you've bought it (❌ = not available):",
+              menu.shopping_list_keyboard([(r["id"], r["ingredient"]) for r in rows]))
+
+def _shopping_status(ctx, item_id, status, done_text):
+    """Mark one of THIS user's shopping items; other users' items are never touched."""
+    uid = _need_profile(ctx)
+    if not uid: return
+    c = db.conn()
+    row = c.execute("SELECT ingredient FROM shopping_list_items WHERE id=? AND user_id=?", (item_id, uid)).fetchone()
+    if row:
+        c.execute("UPDATE shopping_list_items SET status=? WHERE id=? AND user_id=?", (status, item_id, uid))
+        c.commit()
+    c.close()
+    send_text(ctx["chat_id"], done_text.format(item=row["ingredient"]) if row else "That item isn't on your list.")
+
+def item_bought(ctx, item_id):
+    _shopping_status(ctx, item_id, "bought", "✓ {item} marked as bought.")
+
+def item_unavailable(ctx, item_id):
+    _shopping_status(ctx, item_id, "unavailable",
+                     "❌ {item} marked as not available. Ask me in chat for a safe substitute.")
 
 
 # ---------- friction ----------
@@ -254,31 +276,56 @@ def too_tired(ctx):
 def log_meal(ctx):
     uid = _need_profile(ctx)
     if not uid: return
-    text = (ctx.get("text") or "meal").replace("/log", "", 1).strip() or "meal"
-    # Lightweight deterministic estimate for demo; real photo/voice estimates go through llm.py.
-    kcal, protein, carbs, fat = 500, 25, 55, 18
+    text = (ctx.get("text") or "").replace("/log", "", 1).strip()
+    if not text:
+        return send_menu(ctx["chat_id"], "How do you want to log your meal?", menu.log_meal_actions())
+    send_chat_action(ctx["chat_id"])
+    est = estimate_meal(text)  # model estimate; None when no model is reachable
+    kcal, protein, carbs, fat = ((est["kcal"], est["protein_g"], est["carbs_g"], est["fat_g"]) if est
+                                 else (None, None, None, None))
     c = db.conn()
     c.execute("""INSERT INTO food_log(user_id,source,item,verdict,kcal,protein_g,carbs_g,fat_g)
                  VALUES(?,?,?,?,?,?,?,?)""",
               (uid, ctx.get("source", "text"), text, "logged", kcal, protein, carbs, fat))
-    c.execute("UPDATE meal_schedule SET status='cooked' WHERE user_id=? AND date=? AND status='planned'",
-              (uid, dt.date.today().isoformat()))
-    c.commit(); c.close()
+    c.commit(); c.close()  # the planned meal is marked cooked only by its own "Cooking it" button
     _, consumed = reporting.today_chart(uid)
     target = reporting._target(uid)
+    what = (f"Logged {text}: ~{kcal} kcal (estimate)." if est
+            else f"Logged {text}. I couldn't estimate its calories right now.")
     send_photo(ctx["chat_id"], visuals.day_dashboard(consumed, target, name=f"dash_{uid}.png"),
-               caption=f"Logged. Today: {consumed['kcal']:.0f}/{target['daily_kcal']} kcal")
+               caption=f"{what} Today: {consumed['kcal']:.0f}/{target['daily_kcal']} kcal")
+
+def prompt_log_text(ctx, intro=""):
+    pending.expect(ctx["telegram_id"], "log_text")
+    send_text(ctx["chat_id"], intro + "What did you eat? Type it, e.g. \"large chicken salad with rice\".")
+
+def prompt_log_photo(ctx):
+    prompt_log_text(ctx, "Logging from a photo is coming soon. ")
+
+def prompt_log_voice(ctx):
+    prompt_log_text(ctx, "Logging from a voice note is coming soon. ")
 
 
 def log_symptom(ctx):
     uid = _need_profile(ctx)
     if not uid: return
-    note = (ctx.get("text") or "symptom").replace("/symptom", "", 1).strip() or "symptom"
+    note = (ctx.get("text") or "").replace("/symptom", "", 1).strip()
+    if not note:
+        return send_menu(ctx["chat_id"], "What are you feeling?", menu.symptom_picker())
     c = db.conn()
     c.execute("INSERT INTO symptom_log(user_id,symptom,severity,note) VALUES(?,?,?,?)",
               (uid, note[:40], 3, note))
     c.commit(); c.close()
-    send_text(ctx["chat_id"], "Logged. If this is an allergic reaction, use emergency medication and call emergency services. I'm an assistive tool, not a medical device.")
+    send_text(ctx["chat_id"], f"Logged: {note}. If this is an allergic reaction, use emergency medication and call emergency services. I'm an assistive tool, not a medical device.")
+
+SYMPTOMS = {"bloating": "bloating", "low_energy": "low energy", "headache": "headache", "skin": "skin irritation"}
+
+def symptom_button(ctx, kind):
+    if kind == "other":
+        pending.expect(ctx["telegram_id"], "symptom_text")
+        return send_text(ctx["chat_id"], "Describe the symptom in a few words, e.g. \"itchy skin after dinner\".")
+    ctx["text"] = SYMPTOMS.get(kind, kind)
+    log_symptom(ctx)
 
 
 def show_report(ctx):
@@ -301,3 +348,138 @@ def allergy_card(ctx):
     else:
         msg = f"I cannot eat: {all_names}. Please confirm ingredients and cross-contamination risk before serving. Thank you."
     send_text(ctx["chat_id"], msg)
+
+
+# ---------- check sub-menu ----------
+def prompt_check_photo(ctx):
+    send_text(ctx["chat_id"], "📷 Send me a photo of the food — or better, of its ingredient list. "
+                              "I'll check it against your allergies.")
+
+def prompt_check_barcode(ctx):
+    send_text(ctx["chat_id"], "Barcode lookup is coming soon. For now, send a clear photo of the ingredient "
+                              "list on the package — that works today.")
+
+def prompt_check_text(ctx):
+    pending.expect(ctx["telegram_id"], "check_text")
+    send_text(ctx["chat_id"], "⌨️ Type the food or dish, e.g. \"tiramisu\", and I'll check it.")
+
+def prompt_check_menu(ctx):
+    send_text(ctx["chat_id"], "📋 Send a photo of the menu. I'll flag your allergens where I can see them — "
+                              "but a menu isn't an ingredient list, so always confirm with the staff.")
+
+
+# ---------- tonight's meal ----------
+def _slot(uid, date, meal_type):
+    c = db.conn()
+    row = c.execute("""SELECT m.id, m.status, m.date, r.* FROM meal_schedule m JOIN recipes r ON r.id=m.recipe_id
+                       WHERE m.user_id=? AND m.date=? AND m.meal_type=? ORDER BY m.id LIMIT 1""",
+                    (uid, date, meal_type)).fetchone()
+    c.close()
+    return row
+
+def show_tonight(ctx):
+    uid = _need_profile(ctx)
+    if not uid: return
+    today = dt.date.today().isoformat()
+    c = db.conn()
+    row = c.execute("""SELECT m.meal_type, r.title, r.cook_minutes, r.kcal FROM meal_schedule m
+                       JOIN recipes r ON r.id=m.recipe_id WHERE m.user_id=? AND m.date=? AND m.status='planned'
+                       ORDER BY CASE m.meal_type WHEN 'dinner' THEN 0 ELSE 1 END LIMIT 1""", (uid, today)).fetchone()
+    c.close()
+    if not row:
+        return send_menu(ctx["chat_id"], "Nothing is planned for tonight yet.", menu.plan_prompt_menu())
+    send_menu(ctx["chat_id"], f"🌙 Tonight: {row['title']} — {row['cook_minutes'] or '?'} min, {row['kcal'] or '?'} kcal",
+              menu.tonight_actions(today, row["meal_type"]))
+
+def meal_cook(ctx, date, meal_type):
+    uid = _need_profile(ctx)
+    if not uid: return
+    slot = _slot(uid, date, meal_type)
+    if not slot:
+        return send_text(ctx["chat_id"], "I can't find that meal in your plan.")
+    c = db.conn()
+    if slot["status"] != "cooked":
+        c.execute("UPDATE meal_schedule SET status='cooked' WHERE id=?", (slot[0],))
+        c.execute("""INSERT INTO food_log(user_id,source,item,verdict,kcal,protein_g,carbs_g,fat_g)
+                     VALUES(?,?,?,?,?,?,?,?)""", (uid, "schedule", slot["title"], "logged",
+                     slot["kcal"], slot["protein_g"], slot["carbs_g"], slot["fat_g"]))
+        c.commit()
+    c.close()
+    _, consumed = reporting.today_chart(uid)
+    target = reporting._target(uid)
+    send_photo(ctx["chat_id"], visuals.day_dashboard(consumed, target, name=f"dash_{uid}.png"),
+               caption=f"Enjoy! {slot['title']} logged. Today: {consumed['kcal']:.0f}/{target['daily_kcal']} kcal")
+
+def meal_swap(ctx, date, meal_type):
+    """Swap this meal with the next planned one (both stay gate-screened)."""
+    uid = _need_profile(ctx)
+    if not uid: return
+    c = db.conn()
+    here = c.execute("SELECT id, recipe_id FROM meal_schedule WHERE user_id=? AND date=? AND meal_type=? AND status='planned'",
+                     (uid, date, meal_type)).fetchone()
+    other = c.execute("""SELECT m.id, m.recipe_id, m.date FROM meal_schedule m WHERE m.user_id=? AND m.date>?
+                         AND m.status='planned' ORDER BY m.date, m.id LIMIT 1""", (uid, date)).fetchone()
+    if not here or not other:
+        c.close()
+        return send_menu(ctx["chat_id"], "There's no other planned meal to swap with. Plan a new week?",
+                         menu.plan_prompt_menu())
+    c.execute("UPDATE meal_schedule SET recipe_id=? WHERE id=?", (other["recipe_id"], here["id"]))
+    c.execute("UPDATE meal_schedule SET recipe_id=? WHERE id=?", (here["recipe_id"], other["id"]))
+    c.commit()
+    titles = {r["id"]: r["title"] for r in c.execute("SELECT id, title FROM recipes WHERE id IN (?,?)",
+                                                         (here["recipe_id"], other["recipe_id"]))}
+    c.close()
+    day = dt.date.fromisoformat(other["date"]).strftime("%A")
+    send_menu(ctx["chat_id"], f"🔁 Swapped. Tonight: {titles[other['recipe_id']]}. "
+                              f"{titles[here['recipe_id']]} moved to {day}.", menu.tonight_actions(date, meal_type))
+
+def meal_recipe(ctx, date, meal_type):
+    uid = _need_profile(ctx)
+    if not uid: return
+    slot = _slot(uid, date, meal_type)
+    if not slot:
+        return send_text(ctx["chat_id"], "I can't find that meal in your plan.")
+    ings = json.loads(slot["ingredients_json"] or "[]")
+    steps = json.loads(slot["steps_json"] or "[]")
+    screen = json.loads(slot["gate_screen_json"] or "{}").get("level", "not screened")
+    lines = [f"📖 {slot['title']} — {slot['cook_minutes'] or '?'} min, {slot['kcal'] or '?'} kcal", "", "Ingredients:"]
+    lines += [f"• {i.get('qty') or ''} {i.get('unit') or ''} {i.get('name', '')}".replace("  ", " ") for i in ings]
+    lines += ["", "Steps:"] + [f"{n}. {st}" for n, st in enumerate(steps, 1)]
+    lines += ["", f"Safety screen: {screen}. Always check packaged ingredients against your allergies."]
+    send_menu(ctx["chat_id"], "\n".join(lines), menu.tonight_actions(date, meal_type))
+
+
+# ---------- free chat (Hermes agent) ----------
+def _chat_context(uid, ctx):
+    p = db.get_profile(uid) or {}
+    name = (db.user_by_telegram(ctx["telegram_id"]) or {}).get("name") or "the user"
+    allergies = ", ".join(f"{a['allergen']} ({a.get('severity', 'moderate')})" for a in p.get("allergies", [])) or "none"
+    return (f"[NutriGent Telegram chat with {name}. Allergies: {allergies}. Diet: {p.get('diet_type') or 'none'}. "
+            f"Goal: {p.get('goal') or '-'}, target {p.get('daily_kcal') or '?'} kcal/day. "
+            "Rules: reply briefly in the user's language, plain text without markdown tables. "
+            "Never decide yourself whether a specific food or product is safe for their allergies: ask them to "
+            "send it with the Check button (a photo, or 'can I eat ...') so NutriGent's safety gate decides. "
+            "You are an assistive tool, not a medical device; for reaction symptoms tell them to use their "
+            "emergency medication and call emergency services.]")
+
+def chat(ctx):
+    """Open conversation, answered by the Hermes agent; falls back to the menu if it can't answer."""
+    uid = _need_profile(ctx)
+    if not uid: return
+    send_chat_action(ctx["chat_id"])
+    stop = threading.Event()
+    def keep_typing():  # Telegram shows "typing…" for ~5 s per call; the agent needs 10-20 s
+        while not stop.wait(4): send_chat_action(ctx["chat_id"])
+    threading.Thread(target=keep_typing, daemon=True).start()
+    try:
+        reply = hermes_bridge.ask(ctx["telegram_id"], ctx["text"], context=_chat_context(uid, ctx))
+    finally:
+        stop.set()
+    if not reply:
+        return send_menu(ctx["chat_id"], "Sorry, I couldn't answer that right now. Try again in a minute, "
+                                         "or use the buttons:", menu.main_menu())
+    text = reply["text"]
+    for i in range(0, len(text), 4000):  # Telegram's message limit is 4096 characters
+        send_text(ctx["chat_id"], text[i:i + 4000])
+    for path in reply["images"]:
+        send_photo(ctx["chat_id"], path)

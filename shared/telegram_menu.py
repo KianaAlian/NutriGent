@@ -167,6 +167,13 @@ def symptom_picker():
         [("Other", "sym:other"), ("⬅️ Back", "act:menu")],
     ])
 
+def shopping_list_keyboard(items):
+    """items: [(item_id, name)] -> one row per item: bought / not available."""
+    return _kb([[(f"🛒 {name}", f"buy:{iid}"), ("❌", f"nostock:{iid}")] for iid, name in items[:40]])
+
+def plan_prompt_menu():
+    return _kb([[("🍽 Plan my week", "act:plan")], [("⬅️ Back", "act:menu")]])
+
 def yes_no(action):
     return _kb([[("✅ Yes", f"{action}:yes"), ("❌ No", f"{action}:no")]])
 

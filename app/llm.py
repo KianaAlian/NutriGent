@@ -167,3 +167,26 @@ def generate_week(profile, pantry):
         max_tokens=4000,
     )
     return json.loads(resp.choices[0].message.content)
+
+
+def estimate_meal(text):
+    """Calories and macros for a described meal -> {kcal, protein_g, carbs_g, fat_g} or None.
+    Uses OpenAI when a key is set, otherwise the Hermes agent; None if neither answers."""
+    client = _client()
+    if client is None:
+        import hermes_bridge
+        return hermes_bridge.estimate_meal(text)
+    try:
+        resp = client.chat.completions.create(
+            model=os.environ.get("OPENAI_TEXT_MODEL", "gpt-4o"),
+            response_format={"type": "json_object"},
+            messages=[{"role": "user", "content": (
+                "Estimate the nutrition of this meal as one adult portion: " + json.dumps(text) +
+                '. Reply with JSON: {"kcal": int, "protein_g": number, "carbs_g": number, "fat_g": number}')}],
+            max_tokens=100)
+        d = json.loads(resp.choices[0].message.content)
+        est = {k: float(d[k]) for k in ("kcal", "protein_g", "carbs_g", "fat_g")}
+        est["kcal"] = round(est["kcal"])
+        return est if 0 < est["kcal"] < 5000 else None
+    except Exception:
+        return None

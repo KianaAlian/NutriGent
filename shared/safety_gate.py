@@ -123,8 +123,9 @@ def safety_verdict(extraction: dict, profile: dict) -> Verdict:
     if unknown:
         return Verdict("CAUTION", [f"I don't have a label-synonym list for {', '.join(unknown)} — "
                                    "check the ingredient list yourself for other names."])
-    if itype == "prepared_food":
+    if itype in ("prepared_food", "menu"):  # neither shows the full recipe
+        what = "A menu" if itype == "menu" else "A photo"
         if any(s in SEVERITY_BLOCKS_TRACES for s in user_allergens.values()):
-            return Verdict("CAUTION", ["A photo can't prove a cooked dish is allergen-free. Ask for the ingredient list."])
+            return Verdict("CAUTION", [f"{what} can't prove a cooked dish is allergen-free. Ask for the ingredient list."])
         return Verdict("LIKELY_SAFE", ["No visible allergen, but I can't see hidden ingredients."])
     return Verdict("SAFE", ["No allergen from your profile detected against the full ingredient list."])

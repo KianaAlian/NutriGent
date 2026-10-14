@@ -1,0 +1,21 @@
+# Build automation: pip. `pip install -e .` installs every runtime dependency;
+# the Makefile wraps the common tasks (test, e2e, run, report).
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nutrigent"
+version = "0.3.0"
+description = "Agentic diet and allergy assistant for Telegram: LLM agent + deterministic safety gate"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Kiana Alian" }]
+dynamic = ["dependencies"]
+
+[tool.setuptools]
+# The bot runs from the source tree (python app/bot.py); nothing is packaged.
+packages = []
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }

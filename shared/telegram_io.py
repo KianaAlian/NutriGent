@@ -17,7 +17,7 @@ def _post(method, data):
     with urllib.request.urlopen(req) as r: return json.load(r)
 
 def send_text(chat_id, text, reply_markup=None):
-    d = {"chat_id":chat_id, "text":text, "parse_mode":"HTML"}
+    d = {"chat_id":chat_id, "text":text}  # plain text: '&' or '<' in user input can't break a reply
     if reply_markup: d["reply_markup"] = reply_markup
     return _post("sendMessage", d)
 
@@ -26,7 +26,7 @@ def send_menu(chat_id, text, keyboard):
 
 def send_photo(chat_id, photo_path, caption=""):
     boundary = uuid.uuid4().hex
-    fields = {"chat_id":str(chat_id), "caption":caption, "parse_mode":"HTML"}
+    fields = {"chat_id":str(chat_id), "caption":caption}
     body = b""
     for k,v in fields.items():
         body += (f"--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n").encode()
@@ -37,6 +37,11 @@ def send_photo(chat_id, photo_path, caption=""):
     req = urllib.request.Request(API(_token(),"sendPhoto"), data=body,
         headers={"Content-Type":f"multipart/form-data; boundary={boundary}"})
     with urllib.request.urlopen(req) as r: return json.load(r)
+
+def send_chat_action(chat_id, action="typing"):
+    """Shows 'typing…' in the chat for ~5 s (used while the agent thinks)."""
+    try: return _post("sendChatAction", {"chat_id": chat_id, "action": action})
+    except Exception: return None
 
 def set_commands(commands):
     """commands: list of (command, description). Registers the persistent / menu."""

@@ -12,7 +12,7 @@ answering with images (verdict cards, dashboards, charts) instead of walls of te
 > **fails closed** (when unsure, the answer is *not safe*).
 
 - Full feature list with honest status (working / partial / roadmap): **[FEATURES.md](FEATURES.md)**
-- Project report (PDF): **[docs/NutriGent_Project_Report.pdf](docs/NutriGent_Project_Report.pdf)**
+- Project report (LaTeX source): **[report/main.tex](report/main.tex)** — build the PDF with `make report`
 
 ---
 
@@ -27,7 +27,9 @@ answering with images (verdict cards, dashboards, charts) instead of walls of te
 | Charts | Today (calorie ring + macro bars), week (7-day bars vs target), month (30-day trend + weight), weekly safety donut. |
 | Planning | `/plan` builds a 7-day plan, screens every recipe through the gate, and writes a shopping list = needed − pantry, grouped by store section. |
 | Everyday tools | Allergy card for restaurants, symptom journal, "too tired" fallback, profile card. |
-| UI | Persistent button grid under the chat input (no slash commands needed) + inline buttons. |
+| Conversation | Anything that is not a command, button, photo or food question goes to the Hermes agent (GPT-5.5): one memory per user, any language, harmless tools only, menu fallback if the agent is down. |
+| Tonight & logging | Tonight's meal with Cooking it / Swap / Show recipe; "Type it" logs a meal with an estimated kcal and macros. |
+| UI | Persistent button grid under the chat input (no slash commands needed) + inline buttons; every button answers. |
 | Access control | Optional allow-list of Telegram IDs; users can only change their own data. |
 
 See [FEATURES.md](FEATURES.md) for all 48 features, including what is partial and what is planned.
@@ -46,20 +48,22 @@ Telegram user ──► Telegram Bot API ──► app/bot.py  (long polling —
                   extract / decompose / plan)        shared/visuals.py, charts.py (PNG cards)
                                                      shared/db.py → SQLite (13 tables)
 
-Hermes Agent (GPT-5.5) + skills/ ── conversational layer: persona, memory, multilingual chat,
-                                    scheduled jobs (being connected — see roadmap)
+app/hermes_bridge.py ──► Hermes Agent (GPT-5.5) + skills/ ── free chat: one session per user,
+                          memory, persona, any language; no terminal / file / code tools
 ```
 
 ## Quick start
 
+Build automation is **pip** (`pyproject.toml`); the `Makefile` wraps the usual tasks.
+
 ```bash
 git clone <this repo> nutrigent && cd nutrigent
-python3 -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt
+make install                  # python3 -m venv .venv && .venv/bin/pip install -e .
+. .venv/bin/activate
 
 cp .env.example .env          # fill in TELEGRAM_TOKEN (from @BotFather), optional OPENAI_API_KEY
 set -a; . ./.env; set +a
-python3 app/bot.py            # creates the database on first start, then polls Telegram
+python3 app/bot.py            # or: make run — creates the database on first start, then polls Telegram
 ```
 
 Open your bot in Telegram and send **/start**.
@@ -75,29 +79,36 @@ answers so the whole flow can be demonstrated offline.
 | `OPENAI_API_KEY` | Enables real vision extraction and meal planning (optional) |
 | `ALLOWED_TELEGRAM_IDS` | Comma-separated Telegram user IDs allowed to use the bot; empty = everyone |
 | `OPENAI_VISION_MODEL`, `OPENAI_TEXT_MODEL`, `OPENAI_PLANNER_MODEL` | Model overrides (default `gpt-4o`) |
+| `HERMES_BIN`, `HERMES_TIMEOUT` | Path of the `hermes` command and its timeout in seconds (default 120); without Hermes, free chat answers with the menu |
 
 ## Tests
 
 ```bash
-python3 tests/test_safety_gate.py         # 21 safety fixtures (derivatives, traces, fail-closed, guards, typed names)
-python3 tests/test_onboarding_flow.py     # sign-up conversation: full flow, no loop, bad input, resume, returning user
-python3 tests/test_reply_keyboard.py      # button grid labels and routing
-python3 tests/test_access.py              # allow-list and per-user data ownership
-python3 tests/test_onboarding_buttons.py  # onboarding button layouts
-python3 tests/test_bot_flow.py            # router → handler → image rendering, offline
-python3 tests/e2e_fake_telegram.py        # 80 actions against a simulated Telegram API
+make test     # every unit suite
+make e2e      # 80 actions against a simulated Telegram API
 ```
 
-All unit suites pass. The end-to-end run currently reports 66 correct replies, 13 buttons that do not
-answer yet and 1 known escaping bug — these are listed as open work in [FEATURES.md](FEATURES.md#roadmap).
+| Suite | Checks |
+|---|---|
+| `test_safety_gate.py` | 23 safety fixtures: derivatives, traces, fail-closed, guards, typed allergy names, menus |
+| `test_onboarding_flow.py` | sign-up: full flow, no loop, bad input, resume, returning user |
+| `test_chat_and_buttons.py` | free chat → Hermes, food questions stay with the gate, every button, plan screening, card text |
+| `test_hermes_bridge.py` | Hermes output parsing, per-user sessions, stale-session retry, timeouts, estimates |
+| `test_reply_keyboard.py` | button grid labels and routing |
+| `test_access.py` | allow-list and per-user data ownership |
+| `test_onboarding_buttons.py` | onboarding button layouts |
+| `test_bot_flow.py` | router → handler → image rendering, offline |
+| `e2e_fake_telegram.py` | the real polling loop against a fake Telegram that enforces its rules |
+
+All 45 unit tests and 23 safety fixtures pass (68 checks), plus the flow script; the end-to-end run gets a correct reply to all 80 actions.
 
 ## Deployment
 
 The pilot runs on Ubuntu 24.04 (1 vCPU, 2 GB RAM) as a hardened systemd service under a dedicated
 unprivileged user — see [`deploy/nutrigent-bot.service`](deploy/nutrigent-bot.service). It uses about
-70 MB of RAM when idle and ~120 MB at peak. Hermes Agent runs as the same user
+50 MB of RAM when idle and ~120 MB at peak (limit 900 MB, leaving room for Hermes calls). Hermes Agent runs as the same user
 ([`deploy/hermes-wrapper.sh`](deploy/hermes-wrapper.sh)) with its own Telegram gateway disabled, so the
-bot is the only program reading the bot token.
+bot is the only program reading the bot token; the bot calls Hermes for free chat.
 
 ```bash
 sudo useradd --system --create-home --home-dir /opt/nutrigent --shell /usr/sbin/nologin nutrigent
@@ -109,13 +120,14 @@ sudo cp deploy/nutrigent-bot.service /etc/systemd/system/ && sudo systemctl enab
 
 ```
 app/        bot.py (router) · onboarding.py (sign-up) · handlers.py (actions) · llm.py (OpenAI adapter)
+            hermes_bridge.py (Hermes chat) · pending.py (what the next typed message means)
 shared/     safety_gate.py · nutrition.py · visuals.py · charts.py · reporting.py · db.py
             telegram_io.py · telegram_menu.py · schema.sql · allergen_seed.sql · prompts/
 skills/     15 Hermes Agent skills (one SKILL.md each)
-tests/      unit suites + end-to-end test against a simulated Telegram
+tests/      unit suites + end-to-end test against a simulated Telegram (fixtures/ = test photo)
 deploy/     systemd unit and Hermes wrapper used on the server
-docs/       project report (PDF)
-sample-visuals/, sample-charts/   example images produced by the bot
+report/     final report: main.tex, references.bib, figures/ (images produced by the bot in the e2e run)
+pyproject.toml · Makefile   build automation (pip) and task shortcuts
 AGENT_PROMPT.md   system prompt for the Hermes agent persona
 ```
 
